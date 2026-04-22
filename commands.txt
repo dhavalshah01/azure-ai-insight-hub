@@ -1,0 +1,131 @@
+
+
+ $RESOURCE_GROUP = "rg-macu-ai-platform"
+$LOCATION = "eastus"
+
+az group create --name $RESOURCE_GROUP --location $LOCATION
+
+
+
+$RESOURCE_GROUP = "rg-macu-ai-platform"
+$APIM_NAME = "apim-macu-poc"
+$SUB_ID = "a3ea08b2-d15e-470a-b2f9-a1acea2ca3df"
+
+# Create East US backend (az apim backend not available — use REST API + temp file for PowerShell)
+'{"properties":{"url":"https://aoai-macu-poc-primary.openai.azure.com/openai","protocol":"http","description":"Azure OpenAI - East US (Primary)"}}' | Out-File -Encoding utf8 body.json
+
+az rest --method PUT --uri "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/backends/openai-eastus?api-version=2024-05-01" --body "@body.json"
+
+# Create West US backend
+'{"properties":{"url":"https://aoai-macu-poc-secondary.openai.azure.com/openai","protocol":"http","description":"Azure OpenAI - West US (Secondary)"}}' | Out-File -Encoding utf8 body.json
+
+az rest --method PUT  --uri "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/backends/openai-westus?api-version=2024-05-01"   --body "@body.json"
+
+Remove-Item body.json
+
+
+  az apim api import `
+  --service-name $APIM_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --api-id azure-openai-api `
+  --display-name "Azure OpenAI API" `
+  --path "openai" `
+  --protocols https `
+  --specification-format OpenApi `
+  --specification-url "https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/cognitiveservices/data-plane/AzureOpenAI/inference/stable/2024-10-21/inference.json" `
+  --service-url "https://aoai-macu-poc-primary.openai.azure.com/openai" `
+  --subscription-required true
+
+
+
+  # Verify APIM has managed identity
+az apim show --name $APIM_NAME --resource-group $RESOURCE_GROUP  --query "identity" -o json
+
+# Verify role assignments
+$AOAI_PRIMARY_ID = az cognitiveservices account show --name aoai-macu-poc-primary --resource-group $RESOURCE_GROUP --query id -o tsv
+
+az role assignment list --scope $AOAI_PRIMARY_ID  --query "[?principalType=='ServicePrincipal'].{role:roleDefinitionName, principal:principalId}" -o table
+
+
+
+# Team: Lending (az apim subscription not available — use REST API + temp file)
+'{"properties":{"displayName":"Lending Team","scope":"/apis/azure-openai-api","state":"active"}}' | Out-File -Encoding utf8 body.json
+az rest --method PUT --uri "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/lending-team?api-version=2024-05-01" --body "@body.json"
+
+# Team: Member Services
+'{"properties":{"displayName":"Member Services","scope":"/apis/azure-openai-api","state":"active"}}' | Out-File -Encoding utf8 body.json
+az rest --method PUT --uri "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/member-services?api-version=2024-05-01" --body "@body.json"
+
+# Team: Digital Banking
+'{"properties":{"displayName":"Digital Banking","scope":"/apis/azure-openai-api","state":"active"}}' | Out-File -Encoding utf8 body.json
+az rest --method PUT --uri "https://management.azure.com/subscriptions/$SUB_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ApiManagement/service/$APIM_NAME/subscriptions/digital-banking?api-version=2024-05-01" --body "@body.json"
+
+Remove-Item body.json
+
+Lending Team - 57cbd39636094719bd0a35597639734b
+
+Member Services - 9f791938f43744748b70ed20fb5e5be2
+
+Digital Banking - 9a68b70393954f26b909a2c1d69b8a3f
+
+rate limit Tester (fRee) - 5cf3a2b37c034761af21929a3add9337
+
+
+# Standard tier: 50K TPM
+az apim nv create --service-name $APIM_NAME --resource-group $RESOURCE_GROUP `
+  --named-value-id "token-limit-standard" --display-name "token-limit-standard" `
+  --value "50000"
+
+# Premium tier: 200K TPM
+az apim nv create --service-name $APIM_NAME --resource-group $RESOURCE_GROUP `
+  --named-value-id "token-limit-premium" --display-name "token-limit-premium" `
+  --value "200000"
+
+
+
+  Test Limit - Free
+
+  $SUB_KEY = "5cf3a2b37c034761af21929a3add9337"
+# Rapid-fire UNIQUE requests to trigger rate limit (avoids cache hits)
+$total = 0
+1..100 | ForEach-Object {
+  $body = '{"messages": [{"role": "user", "content": "Count to 1000. Request ' + $_ + '"}], "max_tokens": 4000}'
+  $r = Invoke-WebRequest -Method Post `
+    -Uri "$GATEWAY_URL/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21" `
+    -Headers @{ "Content-Type" = "application/json"; "Ocp-Apim-Subscription-Key" = $SUB_KEY } `
+    -Body $body `
+    -SkipHttpErrorCheck
+
+  $status = $r.StatusCode
+  $consumed = if ($r.Headers["x-tokens-consumed"]) { $r.Headers["x-tokens-consumed"][0] } else { "N/A" }
+  $remaining = if ($r.Headers["x-tokens-remaining"]) { $r.Headers["x-tokens-remaining"][0] } else { "N/A" }
+
+  if ($consumed -ne "N/A") { $total += [int]$consumed }
+
+  Write-Output "Request ${_}: HTTP $status | Consumed: $consumed | Remaining: $remaining | Running total: $total"
+}
+
+# Use the Free tier subscription key ($FREE_KEY) to easily trigger 429
+# With 500 TPM, you should see 429 errors after ~20 requests
+# The "Remaining" column will count down from 500 toward 0
+
+
+$SUB_KEY = "c662858f3c6d4e1e91510d11a47dc7cd"
+# Rapid-fire UNIQUE requests to trigger rate limit (avoids cache hits)
+$total = 0
+1..100 | ForEach-Object {
+  $body = '{"messages": [{"role": "user", "content": "Count to 1000. Request ' + $_ + '"}], "max_tokens": 4000}'
+  $r = Invoke-WebRequest -Method Post `
+    -Uri "$GATEWAY_URL/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21" `
+    -Headers @{ "Content-Type" = "application/json"; "Ocp-Apim-Subscription-Key" = $SUB_KEY } `
+    -Body $body `
+    -SkipHttpErrorCheck
+
+  $status = $r.StatusCode
+  $consumed = if ($r.Headers["x-tokens-consumed"]) { $r.Headers["x-tokens-consumed"][0] } else { "N/A" }
+  $remaining = if ($r.Headers["x-tokens-remaining"]) { $r.Headers["x-tokens-remaining"][0] } else { "N/A" }
+
+  if ($consumed -ne "N/A") { $total += [int]$consumed }
+
+  Write-Output "Request ${_}: HTTP $status | Consumed: $consumed | Remaining: $remaining | Running total: $total"
+}

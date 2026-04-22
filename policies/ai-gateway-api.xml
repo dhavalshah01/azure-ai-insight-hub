@@ -1,0 +1,193 @@
+<policies>
+    <inbound>
+        <base />
+
+        <!-- ============================================ -->
+        <!-- 1. KEYLESS AUTHENTICATION (Managed Identity) -->
+        <!-- ============================================ -->
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+
+        <!-- ============================================ -->
+        <!-- 2. MULTI-TENANCY — Extract tenant context    -->
+        <!-- ============================================ -->
+        <set-variable name="tenantId" value="@(context.Subscription.Id)" />
+        <set-variable name="tenantName" value="@(context.Subscription.Name)" />
+
+        <!-- ============================================ -->
+        <!-- 3. RESPONSE CACHING — Check cache first      -->
+        <!-- ============================================ -->
+        <!-- Uses APIM built-in cache for exact-match     -->
+        <!-- No Redis Enterprise required                 -->
+        <choose>
+            <when condition="@(!context.Request.Body.As<JObject>(preserveContent: true)[&quot;stream&quot;]?.Value<bool>() ?? true)">
+                <cache-lookup vary-by-developer="false" vary-by-developer-groups="false">
+                    <vary-by-header>Ocp-Apim-Subscription-Key</vary-by-header>
+                </cache-lookup>
+            </when>
+        </choose>
+
+        <!-- ============================================ -->
+        <!-- 4. TOKEN-BASED RATE LIMITING (Per-Tenant)    -->
+        <!-- ============================================ -->
+        <!-- 4. TOKEN-BASED RATE LIMITING (Tiered Per-Tenant) -->
+        <choose>
+            <when condition="@(context.Product?.Name == "Premium")">
+                <azure-openai-token-limit
+                    tokens-per-minute="200000"
+                    counter-key="@((string)context.Variables["tenantId"])"
+                    estimate-prompt-tokens="true"
+                    tokens-consumed-header-name="x-tokens-consumed"
+                    remaining-tokens-header-name="x-tokens-remaining" />
+            </when>
+            <when condition="@(context.Product?.Name == "Free")">
+                <azure-openai-token-limit
+                    tokens-per-minute="500"
+                    counter-key="@((string)context.Variables["tenantId"])"
+                    estimate-prompt-tokens="true"
+                    tokens-consumed-header-name="x-tokens-consumed"
+                    remaining-tokens-header-name="x-tokens-remaining" />
+            </when>
+            <otherwise>
+                <azure-openai-token-limit
+                    tokens-per-minute="5000"
+                    counter-key="@((string)context.Variables["tenantId"])"
+                    estimate-prompt-tokens="true"
+                    tokens-consumed-header-name="x-tokens-consumed"
+                    remaining-tokens-header-name="x-tokens-remaining" />
+            </otherwise>
+        </choose>
+
+        <!-- ============================================ -->
+        <!-- 5. CONTENT SAFETY (Optional but recommended) -->
+        <!-- ============================================ -->
+        <!-- Uncomment if you deploy Azure AI Content Safety:
+        <llm-content-safety backend-id="contentsafety-backend">
+            <category name="Hate" threshold="4" />
+            <category name="Sexual" threshold="4" />
+            <category name="SelfHarm" threshold="4" />
+            <category name="Violence" threshold="4" />
+        </llm-content-safety>
+        -->
+
+        <!-- ============================================ -->
+        <!-- 6. MULTI-REGION LOAD BALANCING (PTU + PAYG)  -->
+        <!-- ============================================ -->
+        <set-variable name="backendUrl" value="@{
+            // Weighted load balancing: 70% PTU (East US), 30% PAYG (West US)
+            var random = new Random(context.RequestId.GetHashCode());
+            var value = random.NextDouble();
+            if (value < 0.7) {
+                return "https://aoai-macu-poc-primary.openai.azure.com";
+            } else {
+                return "https://aoai-macu-poc-secondary.openai.azure.com";
+            }
+        }" />
+        <set-backend-service base-url="@((string)context.Variables["backendUrl"] + "/openai")" />
+
+        <!-- ============================================ -->
+        <!-- 7. TOKEN METRICS — Emit for monitoring       -->
+        <!-- ============================================ -->
+        <azure-openai-emit-token-metric namespace="macu-ai-gateway">
+            <dimension name="Tenant" value="@((string)context.Variables["tenantId"])" />
+            <dimension name="TenantName" value="@((string)context.Variables["tenantName"])" />
+            <dimension name="API" value="@(context.Api.Name)" />
+            <dimension name="Model" value="@{
+                var segments = context.Request.Url.Path.Split('/');
+                int idx = Array.IndexOf(segments, "deployments");
+                return (idx >= 0 && idx + 1 < segments.Length) ? segments[idx + 1] : "unknown";
+            }" />
+            <dimension name="BackendRegion" value="@{
+                var url = (string)context.Variables["backendUrl"];
+                return url.Contains("primary") ? "eastus" : "westus";
+            }" />
+        </azure-openai-emit-token-metric>
+
+    </inbound>
+
+    <backend>
+        <!-- Retry on 429 with failover to other region -->
+        <retry condition="@(context.Response != null && context.Response.StatusCode == 429)"
+               count="3" interval="10" delta="5" max-interval="30"
+               first-fast-retry="false">
+            <set-variable name="backendUrl" value="@{
+                var current = (string)context.Variables["backendUrl"];
+                // Failover to the other region
+                if (current.Contains("primary")) {
+                    return "https://aoai-macu-poc-secondary.openai.azure.com";
+                } else {
+                    return "https://aoai-macu-poc-primary.openai.azure.com";
+                }
+            }" />
+            <set-backend-service base-url="@((string)context.Variables["backendUrl"] + "/openai")" />
+            <forward-request timeout="120" />
+        </retry>
+    </backend>
+
+    <outbound>
+        <base />
+
+        <!-- Store in APIM built-in cache (non-streaming only) -->
+        <choose>
+            <when condition="@(context.Response.StatusCode == 200)">
+                <cache-store duration="3600" />
+            </when>
+        </choose>
+
+        <!-- Add observability headers -->
+        <set-header name="x-trace-id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+        <set-header name="x-backend-region" exists-action="override">
+            <value>@{
+                var url = (string)context.Variables["backendUrl"];
+                return url.Contains("primary") ? "eastus" : "westus";
+            }</value>
+        </set-header>
+        <!-- Token usage from OpenAI response body -->
+        <set-header name="x-tokens-consumed" exists-action="override">
+            <value>@{
+                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var usage = body?["usage"];
+                return usage?["total_tokens"]?.ToString() ?? "0";
+            }</value>
+        </set-header>
+        <set-header name="x-prompt-tokens" exists-action="override">
+            <value>@{
+                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var usage = body?["usage"];
+                return usage?["prompt_tokens"]?.ToString() ?? "0";
+            }</value>
+        </set-header>
+        <set-header name="x-completion-tokens" exists-action="override">
+            <value>@{
+                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var usage = body?["usage"];
+                return usage?["completion_tokens"]?.ToString() ?? "0";
+            }</value>
+        </set-header>
+    </outbound>
+
+    <on-error>
+        <base />
+        <!-- Rate limit exceeded -->
+        <choose>
+            <when condition="@(context.LastError.Source == "azure-openai-token-limit")">
+                <return-response>
+                    <set-status code="429" reason="Token Limit Exceeded" />
+                    <set-header name="Retry-After" exists-action="override">
+                        <value>60</value>
+                    </set-header>
+                    <set-body>@{
+                        return new JObject(
+                            new JProperty("error", new JObject(
+                                new JProperty("code", "token_limit_exceeded"),
+                                new JProperty("message", "Your team has exceeded its token rate limit. Try again in 60 seconds."),
+                                new JProperty("tenant", (string)context.Variables["tenantName"])
+                            ))
+                        ).ToString();
+                    }</set-body>
+                </return-response>
+            </when>
+        </choose>
+    </on-error>
+</policies>

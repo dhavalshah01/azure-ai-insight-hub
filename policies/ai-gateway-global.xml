@@ -1,0 +1,28 @@
+<policies>
+    <inbound>
+        <!-- Propagate W3C trace context to backends -->
+        <set-header name="traceparent" exists-action="skip">
+            <value>@{
+                var traceId = context.RequestId.ToString("N");
+                var spanId = Guid.NewGuid().ToString("N").Substring(0, 16);
+                return $"00-{traceId}-{spanId}-01";
+            }</value>
+        </set-header>
+
+        <!-- Add correlation headers for tracing back to APIM -->
+        <set-header name="x-ms-apim-request-id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+    </inbound>
+    <backend>
+        <forward-request />
+    </backend>
+    <outbound>
+        <!-- Include trace ID in response for client-side correlation -->
+        <set-header name="x-trace-id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+    </outbound>
+    <on-error>
+    </on-error>
+</policies>

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "1",
+    "title": "MACU Auto Loan Rates",
+    "content": "Mountain America Credit Union offers competitive auto loan rates starting at 5.49% APR for new vehicles with terms up to 84 months. Used vehicle rates start at 5.99% APR. Members with a credit score of 720+ qualify for the best rates. Refinancing is available for loans from other lenders.",
+    "source": "macu-rates-2024.pdf"
+  },
+  {
+    "id": "2",
+    "title": "MACU Mortgage Products",
+    "content": "MACU offers fixed-rate mortgages (15, 20, and 30-year terms), adjustable-rate mortgages (5/1 and 7/1 ARM), FHA loans, VA loans, and jumbo loans. Current 30-year fixed rate is 6.875%. First-time homebuyer programs are available with as little as 3% down payment.",
+    "source": "macu-mortgage-guide.pdf"
+  },
+  {
+    "id": "3",
+    "title": "MACU Digital Banking Features",
+    "content": "MACU's digital banking platform supports mobile check deposit, real-time transaction alerts, P2P payments via Zelle, bill pay, account-to-account transfers, and card controls. The mobile app is available on iOS and Android with biometric login support.",
+    "source": "macu-digital-banking-faq.pdf"
+  },
+  {
+    "id": "4",
+    "title": "MACU Branch Locations",
+    "content": "Mountain America Credit Union operates over 100 branches across Utah, Arizona, Idaho, Montana, Nevada, and New Mexico. Branch hours are Monday-Friday 9am-6pm, Saturday 9am-2pm. Appointment scheduling is available online for mortgage and investment consultations.",
+    "source": "macu-branch-directory.pdf"
+  },
+  {
+    "id": "5",
+    "title": "MACU Security Policies",
+    "content": "MACU employs multi-factor authentication, 256-bit AES encryption, real-time fraud monitoring, and SOC 2 Type II compliant data centers. Members should never share their PIN or password. Suspicious activity can be reported 24/7 via the fraudline at 1-800-XXX-XXXX.",
+    "source": "macu-security-policy.pdf"
+  }
+]
