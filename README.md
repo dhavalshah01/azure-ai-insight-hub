@@ -18,7 +18,7 @@ This POC demonstrates an end-to-end AI platform built on **Azure API Management 
 │  ┌──────────┐    ┌──────────────────┐    ┌────────────────────────────────┐ │
 │  │ Internal  │───▶│  Azure API Mgmt  │───▶│  Azure OpenAI (Multi-Region) │ │
 │  │  Users    │    │  (AI Gateway)    │    │  ┌─────────┐  ┌───────────┐  │ │
-│  │ (3,800)   │    │                  │    │  │ PTU     │  │ PAYG      │  │ │
+│  │ (1000+)   │    │                  │    │  │ PTU     │  │ PAYG      │  │ │
 │  └──────────┘    │ • Response Cache  │    │  │ East US │  │ West US   │  │ │
 │                  │ • Token Limiting  │    │  └─────────┘  └───────────┘  │ │
 │                  │ • Load Balancing  │    └────────────────────────────────┘ │
