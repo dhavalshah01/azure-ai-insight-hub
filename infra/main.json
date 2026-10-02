@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.41.2.15936",
-      "templateHash": "1218156704152816129"
+      "version": "0.46.1.21595",
+      "templateHash": "9821323475486259353"
     }
   },
   "parameters": {
@@ -38,7 +38,92 @@
       "metadata": {
         "description": "APIM publisher name"
       }
+    },
+    "searchDataPrincipalId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID granted Azure AI Search access for the sample apps. Leave empty to use the identity running the deployment."
+      }
+    },
+    "agentSubscriptionName": {
+      "type": "string",
+      "defaultValue": "workshop-agent",
+      "metadata": {
+        "description": "Name of the APIM subscription created for the workshop agent app"
+      }
+    },
+    "teamSubscriptions": {
+      "type": "array",
+      "defaultValue": [
+        {
+          "name": "rate-limit-tester",
+          "displayName": "Rate Limit Tester",
+          "productId": "free"
+        },
+        {
+          "name": "member-services",
+          "displayName": "Member Services",
+          "productId": "standard"
+        },
+        {
+          "name": "digital-banking",
+          "displayName": "Digital Banking",
+          "productId": "standard"
+        },
+        {
+          "name": "lending-team",
+          "displayName": "Lending Team",
+          "productId": "premium"
+        }
+      ],
+      "metadata": {
+        "description": "Per-team APIM subscriptions for the multi-tenancy demo. productId must be free, standard, or premium."
+      }
+    },
+    "chatModelSku": {
+      "type": "string",
+      "defaultValue": "GlobalStandard",
+      "allowedValues": [
+        "Standard",
+        "GlobalStandard",
+        "DataZoneStandard"
+      ],
+      "metadata": {
+        "description": "Deployment SKU for gpt-4o. GlobalStandard has the widest default quota; use DataZoneStandard to keep processing within the US/EU data zone."
+      }
+    },
+    "chatModelCapacity": {
+      "type": "int",
+      "defaultValue": 30,
+      "minValue": 1,
+      "metadata": {
+        "description": "gpt-4o capacity per region, in thousands of tokens per minute (TPM)"
+      }
+    },
+    "embeddingModelSku": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": [
+        "Standard",
+        "GlobalStandard",
+        "DataZoneStandard"
+      ],
+      "metadata": {
+        "description": "Deployment SKU for text-embedding-ada-002"
+      }
+    },
+    "embeddingModelCapacity": {
+      "type": "int",
+      "defaultValue": 30,
+      "minValue": 1,
+      "metadata": {
+        "description": "text-embedding-ada-002 capacity per region, in thousands of tokens per minute (TPM)"
+      }
     }
+  },
+  "variables": {
+    "effectiveSearchDataPrincipalId": "[if(empty(parameters('searchDataPrincipalId')), deployer().objectId, parameters('searchDataPrincipalId'))]"
   },
   "resources": [
     {
@@ -64,8 +149,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "12761388585618627363"
+              "version": "0.46.1.21595",
+              "templateHash": "7644225951349313808"
             }
           },
           "parameters": {
@@ -106,7 +191,8 @@
                 "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('log-{0}', parameters('environmentName')))]",
                 "IngestionMode": "LogAnalytics",
                 "publicNetworkAccessForIngestion": "Enabled",
-                "publicNetworkAccessForQuery": "Enabled"
+                "publicNetworkAccessForQuery": "Enabled",
+                "CustomMetricsOptedInType": "WithDimensions"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces', format('log-{0}', parameters('environmentName')))]"
@@ -141,131 +227,6 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "eventhub",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "environmentName": {
-            "value": "[parameters('environmentName')]"
-          },
-          "location": {
-            "value": "[parameters('location')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "16662829652855965883"
-            }
-          },
-          "parameters": {
-            "environmentName": {
-              "type": "string",
-              "metadata": {
-                "description": "Environment name prefix"
-              }
-            },
-            "location": {
-              "type": "string",
-              "metadata": {
-                "description": "Azure region"
-              }
-            }
-          },
-          "resources": [
-            {
-              "type": "Microsoft.EventHub/namespaces",
-              "apiVersion": "2024-01-01",
-              "name": "[format('evhns-{0}', parameters('environmentName'))]",
-              "location": "[parameters('location')]",
-              "sku": {
-                "name": "Standard",
-                "tier": "Standard",
-                "capacity": 1
-              },
-              "properties": {
-                "isAutoInflateEnabled": true,
-                "maximumThroughputUnits": 4
-              }
-            },
-            {
-              "type": "Microsoft.EventHub/namespaces/eventhubs",
-              "apiVersion": "2024-01-01",
-              "name": "[format('{0}/{1}', format('evhns-{0}', parameters('environmentName')), 'appinsights-logs')]",
-              "properties": {
-                "partitionCount": 4,
-                "messageRetentionInDays": 3
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.EventHub/namespaces', format('evhns-{0}', parameters('environmentName')))]"
-              ]
-            },
-            {
-              "type": "Microsoft.EventHub/namespaces/eventhubs/consumergroups",
-              "apiVersion": "2024-01-01",
-              "name": "[format('{0}/{1}/{2}', format('evhns-{0}', parameters('environmentName')), 'appinsights-logs', 'newrelic-consumer')]",
-              "dependsOn": [
-                "[resourceId('Microsoft.EventHub/namespaces/eventhubs', format('evhns-{0}', parameters('environmentName')), 'appinsights-logs')]"
-              ]
-            },
-            {
-              "type": "Microsoft.EventHub/namespaces/authorizationRules",
-              "apiVersion": "2024-01-01",
-              "name": "[format('{0}/{1}', format('evhns-{0}', parameters('environmentName')), 'appinsights-send')]",
-              "properties": {
-                "rights": [
-                  "Send"
-                ]
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.EventHub/namespaces', format('evhns-{0}', parameters('environmentName')))]"
-              ]
-            },
-            {
-              "type": "Microsoft.EventHub/namespaces/authorizationRules",
-              "apiVersion": "2024-01-01",
-              "name": "[format('{0}/{1}', format('evhns-{0}', parameters('environmentName')), 'newrelic-listen')]",
-              "properties": {
-                "rights": [
-                  "Listen"
-                ]
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.EventHub/namespaces', format('evhns-{0}', parameters('environmentName')))]"
-              ]
-            }
-          ],
-          "outputs": {
-            "namespaceName": {
-              "type": "string",
-              "value": "[format('evhns-{0}', parameters('environmentName'))]"
-            },
-            "eventHubName": {
-              "type": "string",
-              "value": "appinsights-logs"
-            },
-            "sendRuleId": {
-              "type": "string",
-              "value": "[resourceId('Microsoft.EventHub/namespaces/authorizationRules', format('evhns-{0}', parameters('environmentName')), 'appinsights-send')]"
-            },
-            "listenRuleId": {
-              "type": "string",
-              "value": "[resourceId('Microsoft.EventHub/namespaces/authorizationRules', format('evhns-{0}', parameters('environmentName')), 'newrelic-listen')]"
-            }
-          }
-        }
-      }
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
       "name": "openai-primary",
       "properties": {
         "expressionEvaluationOptions": {
@@ -281,6 +242,18 @@
           },
           "isPrimary": {
             "value": true
+          },
+          "chatModelSku": {
+            "value": "[parameters('chatModelSku')]"
+          },
+          "chatModelCapacity": {
+            "value": "[parameters('chatModelCapacity')]"
+          },
+          "embeddingModelSku": {
+            "value": "[parameters('embeddingModelSku')]"
+          },
+          "embeddingModelCapacity": {
+            "value": "[parameters('embeddingModelCapacity')]"
           }
         },
         "template": {
@@ -289,8 +262,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "8541348291910044270"
+              "version": "0.46.1.21595",
+              "templateHash": "11521071882038811413"
             }
           },
           "parameters": {
@@ -310,6 +283,30 @@
               "type": "bool",
               "metadata": {
                 "description": "Is this the primary deployment?"
+              }
+            },
+            "chatModelSku": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployment SKU for the gpt-4o chat model"
+              }
+            },
+            "chatModelCapacity": {
+              "type": "int",
+              "metadata": {
+                "description": "Capacity for the gpt-4o chat model, in thousands of tokens per minute"
+              }
+            },
+            "embeddingModelSku": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployment SKU for the text-embedding-ada-002 model"
+              }
+            },
+            "embeddingModelCapacity": {
+              "type": "int",
+              "metadata": {
+                "description": "Capacity for the text-embedding-ada-002 model, in thousands of tokens per minute"
               }
             }
           },
@@ -340,8 +337,8 @@
               "apiVersion": "2024-10-01",
               "name": "[format('{0}/{1}', format('aoai-{0}-{1}', parameters('environmentName'), variables('suffix')), 'gpt-4o')]",
               "sku": {
-                "name": "Standard",
-                "capacity": 30
+                "name": "[parameters('chatModelSku')]",
+                "capacity": "[parameters('chatModelCapacity')]"
               },
               "properties": {
                 "model": {
@@ -359,8 +356,8 @@
               "apiVersion": "2024-10-01",
               "name": "[format('{0}/{1}', format('aoai-{0}-{1}', parameters('environmentName'), variables('suffix')), 'text-embedding-ada-002')]",
               "sku": {
-                "name": "Standard",
-                "capacity": 30
+                "name": "[parameters('embeddingModelSku')]",
+                "capacity": "[parameters('embeddingModelCapacity')]"
               },
               "properties": {
                 "model": {
@@ -414,6 +411,18 @@
           },
           "isPrimary": {
             "value": false
+          },
+          "chatModelSku": {
+            "value": "[parameters('chatModelSku')]"
+          },
+          "chatModelCapacity": {
+            "value": "[parameters('chatModelCapacity')]"
+          },
+          "embeddingModelSku": {
+            "value": "[parameters('embeddingModelSku')]"
+          },
+          "embeddingModelCapacity": {
+            "value": "[parameters('embeddingModelCapacity')]"
           }
         },
         "template": {
@@ -422,8 +431,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "8541348291910044270"
+              "version": "0.46.1.21595",
+              "templateHash": "11521071882038811413"
             }
           },
           "parameters": {
@@ -443,6 +452,30 @@
               "type": "bool",
               "metadata": {
                 "description": "Is this the primary deployment?"
+              }
+            },
+            "chatModelSku": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployment SKU for the gpt-4o chat model"
+              }
+            },
+            "chatModelCapacity": {
+              "type": "int",
+              "metadata": {
+                "description": "Capacity for the gpt-4o chat model, in thousands of tokens per minute"
+              }
+            },
+            "embeddingModelSku": {
+              "type": "string",
+              "metadata": {
+                "description": "Deployment SKU for the text-embedding-ada-002 model"
+              }
+            },
+            "embeddingModelCapacity": {
+              "type": "int",
+              "metadata": {
+                "description": "Capacity for the text-embedding-ada-002 model, in thousands of tokens per minute"
               }
             }
           },
@@ -473,8 +506,8 @@
               "apiVersion": "2024-10-01",
               "name": "[format('{0}/{1}', format('aoai-{0}-{1}', parameters('environmentName'), variables('suffix')), 'gpt-4o')]",
               "sku": {
-                "name": "Standard",
-                "capacity": 30
+                "name": "[parameters('chatModelSku')]",
+                "capacity": "[parameters('chatModelCapacity')]"
               },
               "properties": {
                 "model": {
@@ -492,8 +525,8 @@
               "apiVersion": "2024-10-01",
               "name": "[format('{0}/{1}', format('aoai-{0}-{1}', parameters('environmentName'), variables('suffix')), 'text-embedding-ada-002')]",
               "sku": {
-                "name": "Standard",
-                "capacity": 30
+                "name": "[parameters('embeddingModelSku')]",
+                "capacity": "[parameters('embeddingModelCapacity')]"
               },
               "properties": {
                 "model": {
@@ -552,8 +585,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "10749647336542100745"
+              "version": "0.46.1.21595",
+              "templateHash": "3805012314154939473"
             }
           },
           "parameters": {
@@ -639,6 +672,18 @@
           },
           "appInsightsInstrumentationKey": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsInstrumentationKey.value]"
+          },
+          "openaiPrimaryName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'openai-primary'), '2025-04-01').outputs.openaiName.value]"
+          },
+          "openaiSecondaryName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'openai-secondary'), '2025-04-01').outputs.openaiName.value]"
+          },
+          "agentSubscriptionName": {
+            "value": "[parameters('agentSubscriptionName')]"
+          },
+          "teamSubscriptions": {
+            "value": "[parameters('teamSubscriptions')]"
           }
         },
         "template": {
@@ -647,8 +692,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "1403537019408918108"
+              "version": "0.46.1.21595",
+              "templateHash": "13711587282889864103"
             }
           },
           "parameters": {
@@ -687,7 +732,54 @@
               "metadata": {
                 "description": "Application Insights instrumentation key"
               }
+            },
+            "openaiPrimaryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Primary Azure OpenAI account name (also its custom subdomain)"
+              }
+            },
+            "openaiSecondaryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Secondary Azure OpenAI account name (also its custom subdomain)"
+              }
+            },
+            "agentSubscriptionName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the APIM subscription created for the workshop agent app"
+              }
+            },
+            "teamSubscriptions": {
+              "type": "array",
+              "metadata": {
+                "description": "Team subscriptions for the multi-tenancy demo. productId must be free, standard, or premium."
+              }
             }
+          },
+          "variables": {
+            "$fxv#0": "<policies>\r\n    <inbound>\r\n        <!-- Propagate W3C trace context to backends -->\r\n        <set-header name=\"traceparent\" exists-action=\"skip\">\r\n            <value>@{\r\n                var traceId = context.RequestId.ToString(\"N\");\r\n                var spanId = Guid.NewGuid().ToString(\"N\").Substring(0, 16);\r\n                return $\"00-{traceId}-{spanId}-01\";\r\n            }</value>\r\n        </set-header>\r\n\r\n        <!-- Add correlation headers for tracing back to APIM -->\r\n        <set-header name=\"x-ms-apim-request-id\" exists-action=\"override\">\r\n            <value>@(context.RequestId.ToString())</value>\r\n        </set-header>\r\n    </inbound>\r\n    <backend>\r\n        <forward-request />\r\n    </backend>\r\n    <outbound>\r\n        <!-- Include trace ID in response for client-side correlation -->\r\n        <set-header name=\"x-trace-id\" exists-action=\"override\">\r\n            <value>@(context.RequestId.ToString())</value>\r\n        </set-header>\r\n    </outbound>\r\n    <on-error>\r\n    </on-error>\r\n</policies>",
+            "$fxv#1": "<policies>\r\n    <inbound>\r\n        <base />\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 1. KEYLESS AUTHENTICATION (Managed Identity) -->\r\n        <!-- ============================================ -->\r\n        <authentication-managed-identity resource=\"https://cognitiveservices.azure.com\" />\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 2. MULTI-TENANCY — Extract tenant context    -->\r\n        <!-- ============================================ -->\r\n        <set-variable name=\"tenantId\" value=\"@(context.Subscription.Id)\" />\r\n        <set-variable name=\"tenantName\" value=\"@(context.Subscription.Name)\" />\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 3. RESPONSE CACHING — Check cache first      -->\r\n        <!-- ============================================ -->\r\n        <!-- Uses APIM built-in cache for exact-match     -->\r\n        <!-- No Redis Enterprise required                 -->\r\n        <choose>\r\n            <when condition=\"@(!context.Request.Body.As&lt;JObject&gt;(preserveContent: true)[&quot;stream&quot;]?.Value&lt;bool&gt;() ?? true)\">\r\n                <cache-lookup vary-by-developer=\"false\" vary-by-developer-groups=\"false\">\r\n                    <vary-by-header>Ocp-Apim-Subscription-Key</vary-by-header>\r\n                </cache-lookup>\r\n            </when>\r\n        </choose>\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 4. TOKEN-BASED RATE LIMITING (Per-Tenant)    -->\r\n        <!-- ============================================ -->\r\n        <!-- 4. TOKEN-BASED RATE LIMITING (Tiered Per-Tenant) -->\r\n        <choose>\r\n            <when condition=\"@(context.Product?.Name == &quot;Premium&quot;)\">\r\n                <azure-openai-token-limit\r\n                    tokens-per-minute=\"200000\"\r\n                    counter-key=\"@((string)context.Variables[&quot;tenantId&quot;])\"\r\n                    estimate-prompt-tokens=\"true\"\r\n                    tokens-consumed-header-name=\"x-tokens-consumed\"\r\n                    remaining-tokens-header-name=\"x-tokens-remaining\" />\r\n            </when>\r\n            <when condition=\"@(context.Product?.Name == &quot;Free&quot;)\">\r\n                <azure-openai-token-limit\r\n                    tokens-per-minute=\"500\"\r\n                    counter-key=\"@((string)context.Variables[&quot;tenantId&quot;])\"\r\n                    estimate-prompt-tokens=\"true\"\r\n                    tokens-consumed-header-name=\"x-tokens-consumed\"\r\n                    remaining-tokens-header-name=\"x-tokens-remaining\" />\r\n            </when>\r\n            <otherwise>\r\n                <azure-openai-token-limit\r\n                    tokens-per-minute=\"5000\"\r\n                    counter-key=\"@((string)context.Variables[&quot;tenantId&quot;])\"\r\n                    estimate-prompt-tokens=\"true\"\r\n                    tokens-consumed-header-name=\"x-tokens-consumed\"\r\n                    remaining-tokens-header-name=\"x-tokens-remaining\" />\r\n            </otherwise>\r\n        </choose>\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 5. CONTENT SAFETY (Optional but recommended) -->\r\n        <!-- ============================================ -->\r\n        <!-- Uncomment if you deploy Azure AI Content Safety:\r\n        <llm-content-safety backend-id=\"contentsafety-backend\">\r\n            <category name=\"Hate\" threshold=\"4\" />\r\n            <category name=\"Sexual\" threshold=\"4\" />\r\n            <category name=\"SelfHarm\" threshold=\"4\" />\r\n            <category name=\"Violence\" threshold=\"4\" />\r\n        </llm-content-safety>\r\n        -->\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 6. MULTI-REGION LOAD BALANCING (PTU + PAYG)  -->\r\n        <!-- ============================================ -->\r\n        <!-- Backend URLs come from APIM named values created by Bicep. Named values are  -->\r\n        <!-- read into variables here because they cannot be used inside @{ } blocks.    -->\r\n        <!-- Do not use // comments inside attribute @{ } blocks: XML turns the line     -->\r\n        <!-- breaks into spaces, so the comment would swallow the rest of the code.      -->\r\n        <set-variable name=\"primaryUrl\" value=\"{{openai-primary-url}}\" />\r\n        <set-variable name=\"secondaryUrl\" value=\"{{openai-secondary-url}}\" />\r\n        <!-- Weighted load balancing: 70% PTU (East US), 30% PAYG (West US) -->\r\n        <set-variable name=\"backendUrl\" value=\"@{\r\n            var random = new Random(context.RequestId.GetHashCode());\r\n            var value = random.NextDouble();\r\n            if (value &lt; 0.7) {\r\n                return (string)context.Variables[&quot;primaryUrl&quot;];\r\n            } else {\r\n                return (string)context.Variables[&quot;secondaryUrl&quot;];\r\n            }\r\n        }\" />\r\n        <set-backend-service base-url=\"@((string)context.Variables[&quot;backendUrl&quot;] + &quot;/openai&quot;)\" />\r\n\r\n        <!-- ============================================ -->\r\n        <!-- 7. TOKEN METRICS — Emit for monitoring       -->\r\n        <!-- ============================================ -->\r\n        <azure-openai-emit-token-metric namespace=\"macu-ai-gateway\">\r\n            <dimension name=\"Tenant\" value=\"@((string)context.Variables[&quot;tenantId&quot;])\" />\r\n            <dimension name=\"TenantName\" value=\"@((string)context.Variables[&quot;tenantName&quot;])\" />\r\n            <dimension name=\"API\" value=\"@(context.Api.Name)\" />\r\n            <dimension name=\"Model\" value=\"@{\r\n                var segments = context.Request.Url.Path.Split('/');\r\n                int idx = Array.IndexOf(segments, &quot;deployments&quot;);\r\n                return (idx &gt;= 0 &amp;&amp; idx + 1 &lt; segments.Length) ? segments[idx + 1] : &quot;unknown&quot;;\r\n            }\" />\r\n            <dimension name=\"BackendRegion\" value=\"@{\r\n                var url = (string)context.Variables[&quot;backendUrl&quot;];\r\n                return url.Contains(&quot;primary&quot;) ? &quot;eastus&quot; : &quot;westus&quot;;\r\n            }\" />\r\n        </azure-openai-emit-token-metric>\r\n\r\n    </inbound>\r\n\r\n    <backend>\r\n        <!-- Retry on 429 with failover to other region -->\r\n        <retry condition=\"@(context.Response != null &amp;&amp; context.Response.StatusCode == 429)\"\r\n               count=\"3\" interval=\"10\" delta=\"5\" max-interval=\"30\"\r\n               first-fast-retry=\"false\">\r\n            <!-- Failover to the other region -->\r\n            <set-variable name=\"backendUrl\" value=\"@{\r\n                var current = (string)context.Variables[&quot;backendUrl&quot;];\r\n                if (current.Contains(&quot;primary&quot;)) {\r\n                    return (string)context.Variables[&quot;secondaryUrl&quot;];\r\n                } else {\r\n                    return (string)context.Variables[&quot;primaryUrl&quot;];\r\n                }\r\n            }\" />\r\n            <set-backend-service base-url=\"@((string)context.Variables[&quot;backendUrl&quot;] + &quot;/openai&quot;)\" />\r\n            <forward-request timeout=\"120\" />\r\n        </retry>\r\n    </backend>\r\n\r\n    <outbound>\r\n        <base />\r\n\r\n        <!-- Store in APIM built-in cache (non-streaming only) -->\r\n        <choose>\r\n            <when condition=\"@(context.Response.StatusCode == 200)\">\r\n                <cache-store duration=\"3600\" />\r\n            </when>\r\n        </choose>\r\n\r\n        <!-- Add observability headers -->\r\n        <set-header name=\"x-trace-id\" exists-action=\"override\">\r\n            <value>@(context.RequestId.ToString())</value>\r\n        </set-header>\r\n        <set-header name=\"x-backend-region\" exists-action=\"override\">\r\n            <value>@{\r\n                var url = (string)context.Variables[\"backendUrl\"];\r\n                return url.Contains(\"primary\") ? \"eastus\" : \"westus\";\r\n            }</value>\r\n        </set-header>\r\n        <!-- Token usage from OpenAI response body -->\r\n        <set-header name=\"x-tokens-consumed\" exists-action=\"override\">\r\n            <value>@{\r\n                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);\r\n                var usage = body?[\"usage\"];\r\n                return usage?[\"total_tokens\"]?.ToString() ?? \"0\";\r\n            }</value>\r\n        </set-header>\r\n        <set-header name=\"x-prompt-tokens\" exists-action=\"override\">\r\n            <value>@{\r\n                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);\r\n                var usage = body?[\"usage\"];\r\n                return usage?[\"prompt_tokens\"]?.ToString() ?? \"0\";\r\n            }</value>\r\n        </set-header>\r\n        <set-header name=\"x-completion-tokens\" exists-action=\"override\">\r\n            <value>@{\r\n                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);\r\n                var usage = body?[\"usage\"];\r\n                return usage?[\"completion_tokens\"]?.ToString() ?? \"0\";\r\n            }</value>\r\n        </set-header>\r\n    </outbound>\r\n\r\n    <on-error>\r\n        <base />\r\n        <!-- Rate limit exceeded -->\r\n        <choose>\r\n            <when condition=\"@(context.LastError.Source == &quot;azure-openai-token-limit&quot;)\">\r\n                <return-response>\r\n                    <set-status code=\"429\" reason=\"Token Limit Exceeded\" />\r\n                    <set-header name=\"Retry-After\" exists-action=\"override\">\r\n                        <value>60</value>\r\n                    </set-header>\r\n                    <set-body>@{\r\n                        return new JObject(\r\n                            new JProperty(\"error\", new JObject(\r\n                                new JProperty(\"code\", \"token_limit_exceeded\"),\r\n                                new JProperty(\"message\", \"Your team has exceeded its token rate limit. Try again in 60 seconds.\"),\r\n                                new JProperty(\"tenant\", (string)context.Variables[\"tenantName\"])\r\n                            ))\r\n                        ).ToString();\r\n                    }</set-body>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n    </on-error>\r\n</policies>",
+            "products": [
+              {
+                "id": "free",
+                "displayName": "Free",
+                "description": "Sandbox tier - 500 tokens per minute per subscription. Use it to demonstrate throttling (HTTP 429)."
+              },
+              {
+                "id": "standard",
+                "displayName": "Standard",
+                "description": "Default tier - 5,000 tokens per minute per subscription."
+              },
+              {
+                "id": "premium",
+                "displayName": "Premium",
+                "description": "Priority tier - 200,000 tokens per minute per subscription."
+              }
+            ],
+            "openaiPrimaryUrl": "[format('https://{0}.openai.azure.com', parameters('openaiPrimaryName'))]",
+            "openaiSecondaryUrl": "[format('https://{0}.openai.azure.com', parameters('openaiSecondaryName'))]"
           },
           "resources": [
             {
@@ -732,6 +824,7 @@
                 "logClientIp": true,
                 "httpCorrelationProtocol": "W3C",
                 "verbosity": "information",
+                "metrics": true,
                 "sampling": {
                   "samplingType": "fixed",
                   "percentage": 100
@@ -776,6 +869,179 @@
                 "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]",
                 "[resourceId('Microsoft.ApiManagement/service/loggers', format('apim-{0}', parameters('environmentName')), 'appinsights-logger')]"
               ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/namedValues",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), 'openai-primary-url')]",
+              "properties": {
+                "displayName": "openai-primary-url",
+                "value": "[variables('openaiPrimaryUrl')]",
+                "secret": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/namedValues",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), 'openai-secondary-url')]",
+              "properties": {
+                "displayName": "openai-secondary-url",
+                "value": "[variables('openaiSecondaryUrl')]",
+                "secret": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/policies",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), 'policy')]",
+              "properties": {
+                "format": "xml",
+                "value": "[variables('$fxv#0')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]",
+              "properties": {
+                "displayName": "Azure OpenAI API",
+                "path": "openai",
+                "protocols": [
+                  "https"
+                ],
+                "serviceUrl": "[format('{0}/openai', variables('openaiPrimaryUrl'))]",
+                "subscriptionRequired": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}/{2}', format('apim-{0}', parameters('environmentName')), 'azure-openai-api', 'chat-completions')]",
+              "properties": {
+                "displayName": "Chat Completions",
+                "method": "POST",
+                "urlTemplate": "/deployments/{deployment-id}/chat/completions",
+                "templateParameters": [
+                  {
+                    "name": "deployment-id",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/operations",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}/{2}', format('apim-{0}', parameters('environmentName')), 'azure-openai-api', 'embeddings')]",
+              "properties": {
+                "displayName": "Embeddings",
+                "method": "POST",
+                "urlTemplate": "/deployments/{deployment-id}/embeddings",
+                "templateParameters": [
+                  {
+                    "name": "deployment-id",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/apis/policies",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}/{2}', format('apim-{0}', parameters('environmentName')), 'azure-openai-api', 'policy')]",
+              "properties": {
+                "format": "xml",
+                "value": "[variables('$fxv#1')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]",
+                "[resourceId('Microsoft.ApiManagement/service/namedValues', format('apim-{0}', parameters('environmentName')), 'openai-primary-url')]",
+                "[resourceId('Microsoft.ApiManagement/service/namedValues', format('apim-{0}', parameters('environmentName')), 'openai-secondary-url')]"
+              ]
+            },
+            {
+              "type": "Microsoft.ApiManagement/service/subscriptions",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), parameters('agentSubscriptionName'))]",
+              "properties": {
+                "displayName": "Workshop Agent",
+                "scope": "[format('/apis/{0}', 'azure-openai-api')]",
+                "state": "active"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]",
+                "[resourceId('Microsoft.ApiManagement/service/apis', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "tierProducts",
+                "count": "[length(variables('products'))]"
+              },
+              "type": "Microsoft.ApiManagement/service/products",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), variables('products')[copyIndex()].id)]",
+              "properties": {
+                "displayName": "[variables('products')[copyIndex()].displayName]",
+                "description": "[variables('products')[copyIndex()].description]",
+                "state": "published",
+                "subscriptionRequired": true,
+                "approvalRequired": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "tierProductApis",
+                "count": "[length(variables('products'))]"
+              },
+              "type": "Microsoft.ApiManagement/service/products/apis",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}/{2}', format('apim-{0}', parameters('environmentName')), variables('products')[copyIndex()].id, 'azure-openai-api')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service/apis', format('apim-{0}', parameters('environmentName')), 'azure-openai-api')]",
+                "[resourceId('Microsoft.ApiManagement/service/products', format('apim-{0}', parameters('environmentName')), variables('products')[copyIndex()].id)]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "teamSubscriptionResources",
+                "count": "[length(parameters('teamSubscriptions'))]"
+              },
+              "type": "Microsoft.ApiManagement/service/subscriptions",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', format('apim-{0}', parameters('environmentName')), parameters('teamSubscriptions')[copyIndex()].name)]",
+              "properties": {
+                "displayName": "[parameters('teamSubscriptions')[copyIndex()].displayName]",
+                "scope": "[format('/products/{0}', parameters('teamSubscriptions')[copyIndex()].productId)]",
+                "state": "active"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName')))]",
+                "tierProductApis"
+              ]
             }
           ],
           "outputs": {
@@ -790,8 +1056,229 @@
             "principalId": {
               "type": "string",
               "value": "[reference(resourceId('Microsoft.ApiManagement/service', format('apim-{0}', parameters('environmentName'))), '2024-05-01', 'full').identity.principalId]"
+            },
+            "apiName": {
+              "type": "string",
+              "value": "azure-openai-api"
+            },
+            "agentSubscriptionName": {
+              "type": "string",
+              "value": "[parameters('agentSubscriptionName')]"
+            },
+            "productIds": {
+              "type": "array",
+              "copy": {
+                "count": "[length(variables('products'))]",
+                "input": "[variables('products')[copyIndex()].id]"
+              }
+            },
+            "teamSubscriptionNames": {
+              "type": "array",
+              "copy": {
+                "count": "[length(parameters('teamSubscriptions'))]",
+                "input": "[parameters('teamSubscriptions')[copyIndex()].name]"
+              }
             }
           }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'monitoring')]",
+        "[resourceId('Microsoft.Resources/deployments', 'openai-primary')]",
+        "[resourceId('Microsoft.Resources/deployments', 'openai-secondary')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "role-assignments",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "openaiPrimaryName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'openai-primary'), '2025-04-01').outputs.openaiName.value]"
+          },
+          "openaiSecondaryName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'openai-secondary'), '2025-04-01').outputs.openaiName.value]"
+          },
+          "searchName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'search'), '2025-04-01').outputs.searchName.value]"
+          },
+          "apimPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.principalId.value]"
+          },
+          "searchDataPrincipalId": {
+            "value": "[variables('effectiveSearchDataPrincipalId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "4601232926635118328"
+            }
+          },
+          "parameters": {
+            "openaiPrimaryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Primary Azure OpenAI account name"
+              }
+            },
+            "openaiSecondaryName": {
+              "type": "string",
+              "metadata": {
+                "description": "Secondary Azure OpenAI account name"
+              }
+            },
+            "searchName": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure AI Search service name"
+              }
+            },
+            "apimPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID of the APIM system-assigned managed identity"
+              }
+            },
+            "searchDataPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID that needs Azure AI Search index and data access (the user running the agent apps)"
+              }
+            }
+          },
+          "variables": {
+            "cognitiveServicesOpenAIUserRoleId": "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd",
+            "searchServiceContributorRoleId": "7ca78c08-252a-4471-8644-bb5ff32d4ba0",
+            "searchIndexDataContributorRoleId": "8ebe5a00-799e-43f5-93ac-243d3dce84a7"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiPrimaryName'))]",
+              "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiPrimaryName')), parameters('apimPrincipalId'), variables('cognitiveServicesOpenAIUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesOpenAIUserRoleId'))]",
+                "principalId": "[parameters('apimPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiSecondaryName'))]",
+              "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', parameters('openaiSecondaryName')), parameters('apimPrincipalId'), variables('cognitiveServicesOpenAIUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesOpenAIUserRoleId'))]",
+                "principalId": "[parameters('apimPrincipalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Search/searchServices', parameters('searchName'))]",
+              "name": "[guid(resourceId('Microsoft.Search/searchServices', parameters('searchName')), parameters('searchDataPrincipalId'), variables('searchServiceContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('searchServiceContributorRoleId'))]",
+                "principalId": "[parameters('searchDataPrincipalId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Search/searchServices', parameters('searchName'))]",
+              "name": "[guid(resourceId('Microsoft.Search/searchServices', parameters('searchName')), parameters('searchDataPrincipalId'), variables('searchIndexDataContributorRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('searchIndexDataContributorRoleId'))]",
+                "principalId": "[parameters('searchDataPrincipalId')]"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'apim')]",
+        "[resourceId('Microsoft.Resources/deployments', 'openai-primary')]",
+        "[resourceId('Microsoft.Resources/deployments', 'openai-secondary')]",
+        "[resourceId('Microsoft.Resources/deployments', 'search')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "workbook",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "appInsightsId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.46.1.21595",
+              "templateHash": "638588664509914490"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name prefix"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "appInsightsId": {
+              "type": "string",
+              "metadata": {
+                "description": "Application Insights resource ID"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/workbooks",
+              "apiVersion": "2023-06-01",
+              "name": "[guid(format('macu-ai-observability-{0}', parameters('environmentName')))]",
+              "location": "[parameters('location')]",
+              "kind": "shared",
+              "properties": {
+                "displayName": "MACU AI Platform - Observability Dashboard",
+                "category": "workbook",
+                "sourceId": "[parameters('appInsightsId')]",
+                "serializedData": "{\r\n  \"version\": \"Notebook/1.0\",\r\n  \"items\": [\r\n    {\r\n      \"type\": 1,\r\n      \"content\": {\r\n        \"json\": \"# MACU AI Platform - Observability Dashboard\\\\n\\\\nEnd-to-end monitoring for the AI Gateway and RAG pipeline.\"\r\n      }\r\n    },\r\n    {\r\n      \"type\": 3,\r\n      \"content\": {\r\n        \"version\": \"KqlItem/1.0\",\r\n        \"query\": \"requests | where name contains 'openai' | summarize count(), avg(duration) by bin(timestamp, 5m) | render timechart\",\r\n        \"size\": 1,\r\n        \"title\": \"AI Gateway Request Volume & Latency\",\r\n        \"timeContext\": { \"durationMs\": 86400000 }\r\n      }\r\n    },\r\n    {\r\n      \"type\": 3,\r\n      \"content\": {\r\n        \"version\": \"KqlItem/1.0\",\r\n        \"query\": \"customMetrics | where name == 'Total Tokens' | summarize sum(value) by bin(timestamp, 1h) | render columnchart\",\r\n        \"size\": 1,\r\n        \"title\": \"Token Consumption Over Time\",\r\n        \"timeContext\": { \"durationMs\": 86400000 }\r\n      }\r\n    },\r\n    {\r\n      \"type\": 3,\r\n      \"content\": {\r\n        \"version\": \"KqlItem/1.0\",\r\n        \"query\": \"dependencies | where name == 'rag-pipeline' | summarize P50=percentile(duration, 50), P90=percentile(duration, 90), P99=percentile(duration, 99) by bin(timestamp, 15m) | render timechart\",\r\n        \"size\": 1,\r\n        \"title\": \"RAG Pipeline Latency (P50/P90/P99)\",\r\n        \"timeContext\": { \"durationMs\": 86400000 }\r\n      }\r\n    }\r\n  ]\r\n}\r\n"
+              }
+            }
+          ]
         }
       },
       "dependsOn": [
@@ -812,6 +1299,22 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.principalId.value]"
     },
+    "apimApiName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.apiName.value]"
+    },
+    "apimAgentSubscriptionName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.agentSubscriptionName.value]"
+    },
+    "apimProductIds": {
+      "type": "array",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.productIds.value]"
+    },
+    "apimTeamSubscriptionNames": {
+      "type": "array",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apim'), '2025-04-01').outputs.teamSubscriptionNames.value]"
+    },
     "appInsightsConnectionString": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.connectionString.value]"
@@ -819,10 +1322,6 @@
     "logAnalyticsWorkspaceId": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.workspaceId.value]"
-    },
-    "eventHubNamespace": {
-      "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'eventhub'), '2025-04-01').outputs.namespaceName.value]"
     },
     "openaiPrimaryEndpoint": {
       "type": "string",
@@ -835,6 +1334,10 @@
     "searchEndpoint": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'search'), '2025-04-01').outputs.endpoint.value]"
+    },
+    "searchName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'search'), '2025-04-01').outputs.searchName.value]"
     }
   }
 }

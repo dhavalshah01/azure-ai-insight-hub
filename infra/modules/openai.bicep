@@ -7,6 +7,18 @@ param location string
 @description('Is this the primary deployment?')
 param isPrimary bool
 
+@description('Deployment SKU for the gpt-4o chat model')
+param chatModelSku string
+
+@description('Capacity for the gpt-4o chat model, in thousands of tokens per minute')
+param chatModelCapacity int
+
+@description('Deployment SKU for the text-embedding-ada-002 model')
+param embeddingModelSku string
+
+@description('Capacity for the text-embedding-ada-002 model, in thousands of tokens per minute')
+param embeddingModelCapacity int
+
 var suffix = isPrimary ? 'primary' : 'secondary'
 
 // Azure OpenAI Account
@@ -32,8 +44,8 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-
   parent: openai
   name: 'gpt-4o'
   sku: {
-    name: 'Standard'
-    capacity: 30  // 30K TPM — adjust based on PTU/PAYG strategy
+    name: chatModelSku
+    capacity: chatModelCapacity
   }
   properties: {
     model: {
@@ -49,8 +61,8 @@ resource embeddingsDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   parent: openai
   name: 'text-embedding-ada-002'
   sku: {
-    name: 'Standard'
-    capacity: 30
+    name: embeddingModelSku
+    capacity: embeddingModelCapacity
   }
   properties: {
     model: {

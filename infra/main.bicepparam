@@ -1,7 +1,7 @@
 using './main.bicep'
 
-param environmentName = 'macu-poc'
+param environmentName = 'ayka-poc'
 param location = 'eastus'
 param secondaryLocation = 'westus'
-param apimPublisherEmail = 'dhaval.shah01@gmail.com'
-param apimPublisherName = 'MACU AI Platform'
+param apimPublisherEmail = 'dhaval.shah01@hotmail.com'
+param apimPublisherName = 'Ayka AI Platform'

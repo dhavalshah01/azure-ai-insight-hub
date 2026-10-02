@@ -370,3 +370,43 @@ After running the test cases, verify that traces appear in Application Insights:
 | Traces not appearing | Wait 1–2 minutes; verify `APPLICATIONINSIGHTS_CONNECTION_STRING` is correct |
 | `ERR_MODULE_NOT_FOUND` | Run `npm install` — the project uses ES modules (`"type": "module"` in package.json) |
 | `SyntaxError: Cannot use import` | Ensure you are using Node.js 18+ (`node --version`) |
+| `self-signed certificate in certificate chain` (`SELF_SIGNED_CERT_IN_CHAIN`) | A TLS-inspection proxy or VPN is re-signing HTTPS traffic. See [Corporate proxy or VPN certificate errors](#corporate-proxy-or-vpn-certificate-errors) |
+
+### Corporate Proxy or VPN Certificate Errors
+
+Some corporate networks (for example Palo Alto GlobalProtect or Zscaler) decrypt HTTPS traffic and re-sign it with a company root certificate. Windows trusts that certificate, but Node.js uses its own bundled list of certificate authorities, so calls to APIM and Azure AI Search fail with `SELF_SIGNED_CERT_IN_CHAIN`.
+
+To confirm, check who issued the certificate your machine receives for the gateway. An issuer other than Microsoft (for example `CN=PA_Decrypt`) means the traffic is being inspected:
+
+```powershell
+$HOST_NAME = ([Uri]$env:APIM_GATEWAY_URL).Host   # or type the host, e.g. apim-<env>.azure-api.net
+$tcp = New-Object Net.Sockets.TcpClient($HOST_NAME, 443)
+$ssl = New-Object Net.Security.SslStream($tcp.GetStream(), $false, { $true })
+$ssl.AuthenticateAsClient($HOST_NAME)
+$ssl.RemoteCertificate.Issuer
+$ssl.Dispose(); $tcp.Dispose()
+```
+
+**Option 1 — Node.js 24 (recommended):** Trust the Windows certificate store. Set this in the same PowerShell session before running any `npm` command:
+
+```powershell
+$env:NODE_USE_SYSTEM_CA = "1"
+npm run setup-index
+npm start
+```
+
+**Option 2 — Older Node.js versions:** Export the company root certificate to a PEM file and point `NODE_EXTRA_CA_CERTS` at it. Replace `PA_Root_CA` with the root certificate name used by your network:
+
+```powershell
+$ROOT = Get-ChildItem Cert:\LocalMachine\Root, Cert:\CurrentUser\Root |
+  Where-Object Subject -eq "CN=PA_Root_CA" | Select-Object -First 1
+$PEM_PATH = "$env:USERPROFILE\corp-root-ca.pem"
+"-----BEGIN CERTIFICATE-----`n" + [Convert]::ToBase64String($ROOT.RawData, "InsertLineBreaks") + "`n-----END CERTIFICATE-----" |
+  Set-Content -Path $PEM_PATH -Encoding ascii
+
+$env:NODE_EXTRA_CA_CERTS = $PEM_PATH
+npm start
+```
+
+- Both variables must be set in the shell. Adding them to `.env` has no effect, because Node.js reads them at startup, before `dotenv` loads the file.
+- Do **not** set `NODE_TLS_REJECT_UNAUTHORIZED=0`. It disables certificate validation completely.

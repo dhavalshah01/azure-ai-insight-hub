@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Gateway Tier Demo</title>
+  <style>
+    :root {
+      --bg: #f4f6fa; --card: #fff; --text: #1b2430; --muted: #5f6b7a; --border: #dde3ec;
+      --blue: #0f6cbd; --green: #107c10; --red: #c50f1f; --amber: #bc4b09;
+      --free: #6b7280; --standard: #0f6cbd; --premium: #8a3ffc;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header { background: #102a43; color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+    header h1 { font-size: 20px; margin: 0; }
+    header .meta { font-size: 13px; opacity: .85; }
+    main { max-width: 1280px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 380px 1fr; gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .card h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .stack { display: flex; flex-direction: column; gap: 16px; }
+    .wide { grid-column: 1 / -1; }
+    label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 4px; }
+    select, input[type=number], textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+    textarea { min-height: 70px; resize: vertical; }
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .products { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+    .product { border: 2px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; background: #fff; text-align: left; font: inherit; }
+    .product strong { display: block; font-size: 15px; }
+    .product span { font-size: 12px; color: var(--muted); }
+    .product.active { border-color: var(--blue); background: #eef5fc; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; color: #fff; background: var(--free); }
+    .badge.standard { background: var(--standard); }
+    .badge.premium { background: var(--premium); }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .warn { color: var(--red); }
+    .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    button.action { padding: 9px 14px; border: 0; border-radius: 6px; font: inherit; font-weight: 600; cursor: pointer; background: var(--blue); color: #fff; }
+    button.action.secondary { background: #e7ebf0; color: var(--text); }
+    button.action.danger { background: var(--red); }
+    button.action:disabled { opacity: .45; cursor: not-allowed; }
+    .checkbox { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-top: 10px; color: var(--text); }
+    .meter { height: 22px; background: #e7ebf0; border-radius: 6px; overflow: hidden; margin: 6px 0; }
+    .meter div { height: 100%; width: 100%; background: var(--green); transition: width .3s, background .3s; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+    .stat { background: #f7f9fc; border-radius: 6px; padding: 8px; text-align: center; }
+    .stat b { display: block; font-size: 20px; }
+    .stat small { color: var(--muted); font-size: 11px; }
+    .throttle { margin-top: 10px; padding: 8px 10px; border-radius: 6px; background: #fde7e9; color: var(--red); font-size: 13px; display: none; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: #fff; }
+    tr.selected td { background: #eef5fc; }
+    .log { max-height: 340px; overflow: auto; }
+    .s200 { color: var(--green); font-weight: 700; }
+    .s429 { color: var(--red); font-weight: 700; }
+    .sother { color: var(--amber); font-weight: 700; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f7f9fc; padding: 12px; border-radius: 6px; margin: 0; max-height: 240px; overflow: auto; font-size: 13px; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Gateway Tier Demo</h1>
+    <div class="meta" id="gatewayMeta">Loading configuration…</div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <section class="card">
+        <h2>1. Choose a product</h2>
+        <div class="products" id="products"></div>
+      </section>
+
+      <section class="card">
+        <h2>2. Choose a subscription</h2>
+        <label for="subscription">Team subscription</label>
+        <select id="subscription"></select>
+        <div class="hint" id="subscriptionHint"></div>
+      </section>
+
+      <section class="card">
+        <h2>3. Send requests</h2>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt">Count from 1 to 100, separated by commas.</textarea>
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label for="maxTokens">Max tokens</label>
+            <input type="number" id="maxTokens" min="1" max="4000" value="400" />
+          </div>
+          <div>
+            <label for="burstCount">Burst size</label>
+            <input type="number" id="burstCount" min="1" max="100" value="10" />
+          </div>
+        </div>
+        <label class="checkbox"><input type="checkbox" id="uniquePrompt" checked /> Make every prompt unique (bypass response cache)</label>
+        <div class="buttons">
+          <button class="action" id="sendOne">Send 1 request</button>
+          <button class="action" id="sendBurst">Run burst</button>
+          <button class="action danger" id="stop" disabled>Stop</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="stack">
+      <section class="card">
+        <h2>Token budget — <span id="budgetTitle">-</span></h2>
+        <div class="row" style="justify-content:space-between; font-size:13px">
+          <span>Remaining tokens this minute (last reported by the gateway)</span>
+          <span style="text-align:right"><b id="remainingText">-</b> / <span id="limitText">-</span></span>
+        </div>
+        <div class="meter"><div id="meterBar"></div></div>
+        <div class="stats">
+          <div class="stat"><b id="statOk" class="s200">0</b><small>Succeeded (200)</small></div>
+          <div class="stat"><b id="statThrottled" class="s429">0</b><small>Throttled (429)</small></div>
+          <div class="stat"><b id="statOther" class="sother">0</b><small>Other errors</small></div>
+          <div class="stat"><b id="statTokens">0</b><small>Tokens consumed</small></div>
+        </div>
+        <div class="throttle" id="throttleBanner"></div>
+      </section>
+
+      <section class="card">
+        <h2>Team overview</h2>
+        <table>
+          <thead><tr><th>Team</th><th>Product</th><th>Limit (TPM)</th><th>200</th><th>429</th><th>Last remaining</th><th>Status</th></tr></thead>
+          <tbody id="overview"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="card wide">
+      <div class="row" style="align-items:center">
+        <h2 style="margin:0">Request log</h2>
+        <div style="text-align:right; flex:0"><button class="action secondary" id="clear">Clear</button></div>
+      </div>
+      <div class="log">
+        <table>
+          <thead><tr><th>#</th><th>Time</th><th>Team</th><th>Product</th><th>Status</th><th>Consumed</th><th>Prompt / completion</th><th>Remaining</th><th>Region</th><th>Latency</th><th>Trace ID</th></tr></thead>
+          <tbody id="log"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card wide">
+      <h2>Last response</h2>
+      <pre id="lastResponse">Send a request to see the model's answer or the gateway's error message.</pre>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = { config: null, productId: null, subscriptionId: null, running: false, stopRequested: false, seq: 0, stats: {} };
+
+    const product = (id) => state.config.products.find((p) => p.id === id);
+    const subscription = (id) => state.config.subscriptions.find((s) => s.id === id);
+    const fmt = (n) => (n === null || n === undefined ? '-' : Number(n).toLocaleString());
+    const statsFor = (id) => (state.stats[id] ??= { ok: 0, throttled: 0, other: 0, tokens: 0, remaining: null, throttledUntil: 0 });
+
+    function cell(text, className) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      if (className) td.className = className;
+      return td;
+    }
+
+    function badge(productId) {
+      const span = document.createElement('span');
+      span.className = `badge ${productId}`;
+      span.textContent = product(productId)?.displayName ?? productId;
+      return span;
+    }
+
+    function statusClass(status) {
+      if (status === 200) return 's200';
+      if (status === 429) return 's429';
+      return 'sother';
+    }
+
+    function renderProducts() {
+      const container = $('products');
+      container.replaceChildren();
+      for (const p of state.config.products) {
+        const count = state.config.subscriptions.filter((s) => s.productId === p.id).length;
+        const button = document.createElement('button');
+        button.className = 'product' + (p.id === state.productId ? ' active' : '');
+        const name = document.createElement('strong');
+        name.textContent = p.displayName;
+        const detail = document.createElement('span');
+        detail.textContent = `${p.tokensPerMinute ? fmt(p.tokensPerMinute) + ' TPM' : 'limit not set'} · ${count} team${count === 1 ? '' : 's'}`;
+        button.append(name, detail);
+        button.onclick = () => selectProduct(p.id);
+        container.append(button);
+      }
+    }
+
+    function renderSubscriptions() {
+      const select = $('subscription');
+      select.replaceChildren();
+      const subs = state.config.subscriptions.filter((s) => s.productId === state.productId);
+      for (const s of subs) {
+        const option = document.createElement('option');
+        option.value = s.id;
+        option.textContent = `${s.displayName} (${s.id})${s.hasKey ? '' : ' — key missing'}`;
+        select.append(option);
+      }
+      if (!subs.some((s) => s.id === state.subscriptionId)) state.subscriptionId = subs[0]?.id ?? null;
+      select.value = state.subscriptionId ?? '';
+      select.disabled = subs.length === 0;
+    }
+
+    function renderHint() {
+      const hint = $('subscriptionHint');
+      const s = subscription(state.subscriptionId);
+      if (!s) {
+        hint.className = 'hint warn';
+        hint.textContent = 'No subscriptions are configured for this product in .env.';
+        return;
+      }
+      hint.className = s.hasKey ? 'hint' : 'hint warn';
+      hint.textContent = s.hasKey
+        ? `Requests use the ${s.id} subscription key from .env. APIM applies the ${product(s.productId).displayName} product's token limit.`
+        : `No key configured. Set SUBSCRIPTION_${s.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_KEY in .env and restart the app.`;
+    }
+
+    function renderBudget() {
+      const s = subscription(state.subscriptionId);
+      const st = s ? statsFor(s.id) : null;
+      const limit = s ? product(s.productId).tokensPerMinute : null;
+      $('budgetTitle').textContent = s ? s.displayName : '-';
+      $('limitText').textContent = limit ? `${fmt(limit)} TPM` : '-';
+      $('remainingText').textContent = st?.remaining === null || !st ? (limit ? fmt(limit) : '-') : fmt(st.remaining);
+      const ratio = !limit || !st || st.remaining === null ? 1 : Math.max(0, Math.min(1, st.remaining / limit));
+      const bar = $('meterBar');
+      bar.style.width = `${ratio * 100}%`;
+      bar.style.background = ratio > 0.5 ? 'var(--green)' : ratio > 0.2 ? 'var(--amber)' : 'var(--red)';
+      $('statOk').textContent = st?.ok ?? 0;
+      $('statThrottled').textContent = st?.throttled ?? 0;
+      $('statOther').textContent = st?.other ?? 0;
+      $('statTokens').textContent = fmt(st?.tokens ?? 0);
+
+      const banner = $('throttleBanner');
+      const secondsLeft = st ? Math.ceil((st.throttledUntil - Date.now()) / 1000) : 0;
+      if (secondsLeft > 0) {
+        banner.style.display = 'block';
+        banner.textContent = `Throttled by the gateway. The token counter resets in about ${secondsLeft}s. Other teams are not affected.`;
+      } else {
+        banner.style.display = 'none';
+      }
+
+      const ready = Boolean(s?.hasKey);
+      $('sendOne').disabled = state.running || !ready;
+      $('sendBurst').disabled = state.running || !ready;
+      $('stop').disabled = !state.running;
+    }
+
+    function renderOverview() {
+      const body = $('overview');
+      body.replaceChildren();
+      for (const s of state.config.subscriptions) {
+        const st = statsFor(s.id);
+        const tr = document.createElement('tr');
+        if (s.id === state.subscriptionId) tr.className = 'selected';
+        const productCell = document.createElement('td');
+        productCell.append(badge(s.productId));
+        const throttled = st.throttledUntil > Date.now();
+        tr.append(
+          cell(s.displayName),
+          productCell,
+          cell(fmt(product(s.productId).tokensPerMinute)),
+          cell(st.ok, 's200'),
+          cell(st.throttled, 's429'),
+          cell(fmt(st.remaining)),
+          cell(!s.hasKey ? 'Key missing' : throttled ? 'Throttled' : 'Available', !s.hasKey ? 'sother' : throttled ? 's429' : 's200'),
+        );
+        tr.style.cursor = 'pointer';
+        tr.onclick = () => { selectProduct(s.productId, s.id); };
+        body.append(tr);
+      }
+    }
+
+    function render() {
+      renderProducts();
+      renderSubscriptions();
+      renderHint();
+      renderBudget();
+      renderOverview();
+    }
+
+    function selectProduct(productId, subscriptionId) {
+      state.productId = productId;
+      if (subscriptionId) state.subscriptionId = subscriptionId;
+      render();
+    }
+
+    function addLogRow(r) {
+      const tr = document.createElement('tr');
+      const productCell = document.createElement('td');
+      productCell.append(badge(r.productId));
+      tr.append(
+        cell(r.seq),
+        cell(new Date().toLocaleTimeString()),
+        cell(subscription(r.subscriptionId)?.displayName ?? r.subscriptionId),
+        productCell,
+        cell(r.status === 0 ? 'Network error' : r.status, statusClass(r.status)),
+        cell(fmt(r.tokensConsumed)),
+        cell(r.promptTokens === null && r.completionTokens === null ? '-' : `${fmt(r.promptTokens)} / ${fmt(r.completionTokens)}`),
+        cell(fmt(r.tokensRemaining)),
+        cell(r.backendRegion ?? '-'),
+        cell(r.latencyMs ? `${r.latencyMs} ms` : '-'),
+        cell(r.traceId ?? '-'),
+      );
+      $('log').prepend(tr);
+    }
+
+    async function sendRequest() {
+      const s = subscription(state.subscriptionId);
+      const seq = ++state.seq;
+      let result;
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscriptionId: s.id,
+            prompt: $('prompt').value,
+            maxTokens: Number($('maxTokens').value),
+            uniquePrompt: $('uniquePrompt').checked,
+          }),
+        });
+        result = await response.json();
+        if (!response.ok) result = { subscriptionId: s.id, productId: s.productId, status: response.status, error: result.error };
+      } catch (err) {
+        result = { subscriptionId: s.id, productId: s.productId, status: 0, error: err.message };
+      }
+      result.seq = seq;
+
+      const st = statsFor(s.id);
+      if (result.status === 200) {
+        st.ok++;
+        st.tokens += result.tokensConsumed ?? 0;
+        if (result.tokensRemaining !== null && result.tokensRemaining !== undefined) st.remaining = result.tokensRemaining;
+      } else if (result.status === 429) {
+        st.throttled++;
+        st.remaining = 0;
+        st.throttledUntil = Date.now() + (result.retryAfter ?? 60) * 1000;
+      } else {
+        st.other++;
+      }
+
+      addLogRow(result);
+      $('lastResponse').textContent = result.status === 200
+        ? result.answer ?? '(empty answer)'
+        : `HTTP ${result.status || 'error'}: ${result.error ?? 'Unknown error'}`;
+      render();
+      return result;
+    }
+
+    async function run(count) {
+      state.running = true;
+      state.stopRequested = false;
+      render();
+      try {
+        for (let i = 0; i < count && !state.stopRequested; i++) {
+          await sendRequest();
+        }
+      } finally {
+        state.running = false;
+        render();
+      }
+    }
+
+    $('subscription').onchange = (e) => { state.subscriptionId = e.target.value; render(); };
+    $('sendOne').onclick = () => run(1);
+    $('sendBurst').onclick = () => run(Math.max(1, Math.min(100, Number($('burstCount').value) || 1)));
+    $('stop').onclick = () => { state.stopRequested = true; };
+    $('clear').onclick = () => {
+      state.stats = {};
+      state.seq = 0;
+      $('log').replaceChildren();
+      $('lastResponse').textContent = 'Send a request to see the model\'s answer or the gateway\'s error message.';
+      render();
+    };
+
+    // Refresh throttle countdowns once per second
+    setInterval(() => { if (state.config) { renderBudget(); renderOverview(); } }, 1000);
+
+    (async () => {
+      try {
+        const response = await fetch('/api/config');
+        state.config = await response.json();
+        $('gatewayMeta').textContent = `Gateway: ${state.config.gatewayUrl} · Model: ${state.config.model}`;
+        const first = state.config.subscriptions[0];
+        selectProduct(first?.productId ?? state.config.products[0]?.id, first?.id);
+      } catch (err) {
+        $('gatewayMeta').textContent = `Could not load configuration: ${err.message}`;
+      }
+    })();
+  </script>
+</body>
+</html>

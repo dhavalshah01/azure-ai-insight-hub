@@ -27,6 +27,10 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
     IngestionMode: 'LogAnalytics'
     publicNetworkAccessForIngestion: 'Enabled'
     publicNetworkAccessForQuery: 'Enabled'
+    // Send custom metrics with dimensions (team, model, region) to Azure Monitor, used by the APIM token metric policy.
+    // Not yet in the Bicep type definitions, so the linter warning is suppressed.
+    #disable-next-line BCP037
+    CustomMetricsOptedInType: 'WithDimensions'
   }
 }
 

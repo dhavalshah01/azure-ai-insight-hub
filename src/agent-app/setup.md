@@ -338,3 +338,26 @@ After running the test cases, verify that traces appear in Application Insights:
 | `404` from embedding/chat calls | Verify model deployment names (`gpt-4o`, `text-embedding-ada-002`) match your APIM/OpenAI deployments |
 | `httpx.ConnectError` | Check `APIM_GATEWAY_URL` is reachable from your network |
 | Traces not appearing | Wait 1–2 minutes; verify `APPLICATIONINSIGHTS_CONNECTION_STRING` is correct |
+| `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain` | A TLS-inspection proxy or VPN is re-signing HTTPS traffic. See [Corporate proxy or VPN certificate errors](#corporate-proxy-or-vpn-certificate-errors) |
+
+### Corporate Proxy or VPN Certificate Errors
+
+Some corporate networks (for example Palo Alto GlobalProtect or Zscaler) decrypt HTTPS traffic and re-sign it with a company root certificate. Windows trusts that certificate, but Python's HTTP libraries use the `certifi` certificate bundle instead of the Windows certificate store, so calls fail with `CERTIFICATE_VERIFY_FAILED`.
+
+Use the `truststore` package so Python verifies certificates with the Windows certificate store:
+
+1. Install it into the virtual environment:
+
+```powershell
+pip install truststore
+```
+
+2. Add these two lines at the very top of both `app.py` and `setup_search_index.py`, before any other imports:
+
+```python
+import truststore
+truststore.inject_into_ssl()
+```
+
+- Adding the company root certificate to a custom bundle (`SSL_CERT_FILE`) is not enough on Python 3.13 and later. Its strict certificate checks reject many inspection certificates with `Missing Authority Key Identifier`.
+- Do **not** disable certificate verification (for example `verify=False`).

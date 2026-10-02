@@ -19,7 +19,7 @@
         <!-- Uses APIM built-in cache for exact-match     -->
         <!-- No Redis Enterprise required                 -->
         <choose>
-            <when condition="@(!context.Request.Body.As<JObject>(preserveContent: true)[&quot;stream&quot;]?.Value<bool>() ?? true)">
+            <when condition="@(!context.Request.Body.As&lt;JObject&gt;(preserveContent: true)[&quot;stream&quot;]?.Value&lt;bool&gt;() ?? true)">
                 <cache-lookup vary-by-developer="false" vary-by-developer-groups="false">
                     <vary-by-header>Ocp-Apim-Subscription-Key</vary-by-header>
                 </cache-lookup>
@@ -31,18 +31,18 @@
         <!-- ============================================ -->
         <!-- 4. TOKEN-BASED RATE LIMITING (Tiered Per-Tenant) -->
         <choose>
-            <when condition="@(context.Product?.Name == "Premium")">
+            <when condition="@(context.Product?.Name == &quot;Premium&quot;)">
                 <azure-openai-token-limit
                     tokens-per-minute="200000"
-                    counter-key="@((string)context.Variables["tenantId"])"
+                    counter-key="@((string)context.Variables[&quot;tenantId&quot;])"
                     estimate-prompt-tokens="true"
                     tokens-consumed-header-name="x-tokens-consumed"
                     remaining-tokens-header-name="x-tokens-remaining" />
             </when>
-            <when condition="@(context.Product?.Name == "Free")">
+            <when condition="@(context.Product?.Name == &quot;Free&quot;)">
                 <azure-openai-token-limit
                     tokens-per-minute="500"
-                    counter-key="@((string)context.Variables["tenantId"])"
+                    counter-key="@((string)context.Variables[&quot;tenantId&quot;])"
                     estimate-prompt-tokens="true"
                     tokens-consumed-header-name="x-tokens-consumed"
                     remaining-tokens-header-name="x-tokens-remaining" />
@@ -50,7 +50,7 @@
             <otherwise>
                 <azure-openai-token-limit
                     tokens-per-minute="5000"
-                    counter-key="@((string)context.Variables["tenantId"])"
+                    counter-key="@((string)context.Variables[&quot;tenantId&quot;])"
                     estimate-prompt-tokens="true"
                     tokens-consumed-header-name="x-tokens-consumed"
                     remaining-tokens-header-name="x-tokens-remaining" />
@@ -72,33 +72,39 @@
         <!-- ============================================ -->
         <!-- 6. MULTI-REGION LOAD BALANCING (PTU + PAYG)  -->
         <!-- ============================================ -->
+        <!-- Backend URLs come from APIM named values created by Bicep. Named values are  -->
+        <!-- read into variables here because they cannot be used inside @{ } blocks.    -->
+        <!-- Do not use // comments inside attribute @{ } blocks: XML turns the line     -->
+        <!-- breaks into spaces, so the comment would swallow the rest of the code.      -->
+        <set-variable name="primaryUrl" value="{{openai-primary-url}}" />
+        <set-variable name="secondaryUrl" value="{{openai-secondary-url}}" />
+        <!-- Weighted load balancing: 70% PTU (East US), 30% PAYG (West US) -->
         <set-variable name="backendUrl" value="@{
-            // Weighted load balancing: 70% PTU (East US), 30% PAYG (West US)
             var random = new Random(context.RequestId.GetHashCode());
             var value = random.NextDouble();
-            if (value < 0.7) {
-                return "https://aoai-macu-poc-primary.openai.azure.com";
+            if (value &lt; 0.7) {
+                return (string)context.Variables[&quot;primaryUrl&quot;];
             } else {
-                return "https://aoai-macu-poc-secondary.openai.azure.com";
+                return (string)context.Variables[&quot;secondaryUrl&quot;];
             }
         }" />
-        <set-backend-service base-url="@((string)context.Variables["backendUrl"] + "/openai")" />
+        <set-backend-service base-url="@((string)context.Variables[&quot;backendUrl&quot;] + &quot;/openai&quot;)" />
 
         <!-- ============================================ -->
         <!-- 7. TOKEN METRICS — Emit for monitoring       -->
         <!-- ============================================ -->
         <azure-openai-emit-token-metric namespace="macu-ai-gateway">
-            <dimension name="Tenant" value="@((string)context.Variables["tenantId"])" />
-            <dimension name="TenantName" value="@((string)context.Variables["tenantName"])" />
+            <dimension name="Tenant" value="@((string)context.Variables[&quot;tenantId&quot;])" />
+            <dimension name="TenantName" value="@((string)context.Variables[&quot;tenantName&quot;])" />
             <dimension name="API" value="@(context.Api.Name)" />
             <dimension name="Model" value="@{
                 var segments = context.Request.Url.Path.Split('/');
-                int idx = Array.IndexOf(segments, "deployments");
-                return (idx >= 0 && idx + 1 < segments.Length) ? segments[idx + 1] : "unknown";
+                int idx = Array.IndexOf(segments, &quot;deployments&quot;);
+                return (idx &gt;= 0 &amp;&amp; idx + 1 &lt; segments.Length) ? segments[idx + 1] : &quot;unknown&quot;;
             }" />
             <dimension name="BackendRegion" value="@{
-                var url = (string)context.Variables["backendUrl"];
-                return url.Contains("primary") ? "eastus" : "westus";
+                var url = (string)context.Variables[&quot;backendUrl&quot;];
+                return url.Contains(&quot;primary&quot;) ? &quot;eastus&quot; : &quot;westus&quot;;
             }" />
         </azure-openai-emit-token-metric>
 
@@ -106,19 +112,19 @@
 
     <backend>
         <!-- Retry on 429 with failover to other region -->
-        <retry condition="@(context.Response != null && context.Response.StatusCode == 429)"
+        <retry condition="@(context.Response != null &amp;&amp; context.Response.StatusCode == 429)"
                count="3" interval="10" delta="5" max-interval="30"
                first-fast-retry="false">
+            <!-- Failover to the other region -->
             <set-variable name="backendUrl" value="@{
-                var current = (string)context.Variables["backendUrl"];
-                // Failover to the other region
-                if (current.Contains("primary")) {
-                    return "https://aoai-macu-poc-secondary.openai.azure.com";
+                var current = (string)context.Variables[&quot;backendUrl&quot;];
+                if (current.Contains(&quot;primary&quot;)) {
+                    return (string)context.Variables[&quot;secondaryUrl&quot;];
                 } else {
-                    return "https://aoai-macu-poc-primary.openai.azure.com";
+                    return (string)context.Variables[&quot;primaryUrl&quot;];
                 }
             }" />
-            <set-backend-service base-url="@((string)context.Variables["backendUrl"] + "/openai")" />
+            <set-backend-service base-url="@((string)context.Variables[&quot;backendUrl&quot;] + &quot;/openai&quot;)" />
             <forward-request timeout="120" />
         </retry>
     </backend>
@@ -146,21 +152,21 @@
         <!-- Token usage from OpenAI response body -->
         <set-header name="x-tokens-consumed" exists-action="override">
             <value>@{
-                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);
                 var usage = body?["usage"];
                 return usage?["total_tokens"]?.ToString() ?? "0";
             }</value>
         </set-header>
         <set-header name="x-prompt-tokens" exists-action="override">
             <value>@{
-                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);
                 var usage = body?["usage"];
                 return usage?["prompt_tokens"]?.ToString() ?? "0";
             }</value>
         </set-header>
         <set-header name="x-completion-tokens" exists-action="override">
             <value>@{
-                var body = context.Response.Body.As<JObject>(preserveContent: true);
+                var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);
                 var usage = body?["usage"];
                 return usage?["completion_tokens"]?.ToString() ?? "0";
             }</value>
@@ -171,7 +177,7 @@
         <base />
         <!-- Rate limit exceeded -->
         <choose>
-            <when condition="@(context.LastError.Source == "azure-openai-token-limit")">
+            <when condition="@(context.LastError.Source == &quot;azure-openai-token-limit&quot;)">
                 <return-response>
                     <set-status code="429" reason="Token Limit Exceeded" />
                     <set-header name="Retry-After" exists-action="override">
